@@ -16,6 +16,8 @@ import java.util.HashMap;
 import java.util.List;
 
 import android.annotation.TargetApi;
+
+import com.actionbarsherlock.R;
 import com.actionbarsherlock.app.ActionBar;
 import com.actionbarsherlock.app.SherlockActivity;
 
@@ -58,7 +60,7 @@ import org.json.JSONObject;
 @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
 public class ActionBarPlugin extends CordovaPlugin
 {
-	JSONArray menu_definition = null;
+  JSONArray menu_definition = null;
 	Menu menu = null;
 	HashMap<MenuItem, String> menu_callbacks = new HashMap<MenuItem, String>();
 
@@ -81,7 +83,7 @@ public class ActionBarPlugin extends CordovaPlugin
 			Icon.setImageDrawable(icon);
 
             LayoutInflater inflater = LayoutInflater.from(context);
-			Text = (TextView)inflater.inflate(android.R.layout.simple_spinner_dropdown_item, this, false);
+			Text = (TextView)inflater.inflate(R.layout.sherlock_spinner_dropdown_item, this, false);
 			Text.setText(text);
 
 			addView(Icon, new LayoutParams(LayoutParams.WRAP_CONTENT, LayoutParams.MATCH_PARENT));
@@ -187,8 +189,8 @@ public class ActionBarPlugin extends CordovaPlugin
 		public View getView(int position, View convertView, ViewGroup parent)
 		{
 			final Activity ctx = ((SherlockActivity)plugin.cordova);
-            LayoutInflater inflater = LayoutInflater.from(ctx);
-			TextView view = (TextView)inflater.inflate(android.R.layout.simple_spinner_item, parent, false);
+            LayoutInflater inflater = LayoutInflater.from(((SherlockActivity) ctx).getSupportActionBar().getThemedContext());
+			TextView view = (TextView)inflater.inflate(R.layout.sherlock_spinner_item, parent, false);
 			view.setText(items.get(position).Text);
 			return view;
 		}
@@ -209,7 +211,7 @@ public class ActionBarPlugin extends CordovaPlugin
 			}
 			else
 			{
-				view = new IconTextView(ctx, item.Icon, item.Text);
+				view = new IconTextView(((SherlockActivity) ctx).getSupportActionBar().getThemedContext(), item.Icon, item.Text);
 			}
 
 			// Get preferred list height
