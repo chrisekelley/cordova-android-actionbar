@@ -1,4 +1,4 @@
-// Copyright (C) 2013 Polychrom Pty Ltd
+﻿// Copyright (C) 2013 Polychrom Pty Ltd
 //
 // This program is licensed under the 3-clause "Modified" BSD license,
 // see LICENSE file for full definition.
@@ -16,22 +16,23 @@ import java.util.HashMap;
 import java.util.List;
 
 import android.annotation.TargetApi;
-import android.app.ActionBar;
+import com.actionbarsherlock.app.ActionBar;
+import com.actionbarsherlock.app.SherlockActivity;
+
 import android.app.Activity;
-import android.app.FragmentTransaction;
 import android.content.Context;
 import android.graphics.drawable.BitmapDrawable;
 import android.graphics.drawable.Drawable;
 import android.net.Uri;
 import android.os.AsyncTask;
 import android.os.Build;
-import android.text.TextUtils.TruncateAt;
+import android.support.v4.app.FragmentTransaction;
 import android.util.DisplayMetrics;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
-import android.view.Menu;
-import android.view.MenuItem;
-import android.view.SubMenu;
+import com.actionbarsherlock.view.Menu;
+import com.actionbarsherlock.view.MenuItem;
+import com.actionbarsherlock.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -39,7 +40,6 @@ import android.widget.AbsListView;
 import android.widget.BaseAdapter;
 import android.widget.ImageView;
 import android.widget.LinearLayout;
-import android.widget.LinearLayout.LayoutParams;
 import android.widget.SpinnerAdapter;
 import android.widget.TextView;
 
@@ -53,7 +53,7 @@ import org.json.JSONObject;
  * 
  * @author Mitchell Wheeler
  *
- *	Wraps the bare essentials of ActionBar and the options menu to appropriately populate the ActionBar in it's various forms.
+ *  Wraps the bare essentials of ActionBar and the options menu to appropriately populate the ActionBar in it's various forms.
  */
 @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
 public class ActionBarPlugin extends CordovaPlugin
@@ -141,7 +141,6 @@ public class ActionBarPlugin extends CordovaPlugin
 				return;
 			}
 
-			final Activity ctx = (Activity)plugin.cordova;
 			items = new ArrayList<Item>();
 
 			for(int i = 0; i < new_items.length(); ++i)
@@ -187,8 +186,8 @@ public class ActionBarPlugin extends CordovaPlugin
 		@Override
 		public View getView(int position, View convertView, ViewGroup parent)
 		{
-			final Activity ctx = (Activity)plugin.cordova;
-            LayoutInflater inflater = LayoutInflater.from(ctx.getActionBar().getThemedContext());
+			final Activity ctx = ((SherlockActivity)plugin.cordova);
+            LayoutInflater inflater = LayoutInflater.from(ctx);
 			TextView view = (TextView)inflater.inflate(android.R.layout.simple_spinner_item, parent, false);
 			view.setText(items.get(position).Text);
 			return view;
@@ -197,7 +196,7 @@ public class ActionBarPlugin extends CordovaPlugin
 		@Override
 		public View getDropDownView(int position, View convertView, ViewGroup parent)
 		{
-			final Activity ctx = (Activity)plugin.cordova;
+			final Activity ctx = ((SherlockActivity)plugin.cordova);
 			final Item item = items.get(position);
 			
 			IconTextView view;
@@ -210,7 +209,7 @@ public class ActionBarPlugin extends CordovaPlugin
 			}
 			else
 			{
-				view = new IconTextView(ctx.getActionBar().getThemedContext(), item.Icon, item.Text);
+				view = new IconTextView(ctx, item.Icon, item.Text);
 			}
 
 			// Get preferred list height
@@ -285,7 +284,7 @@ public class ActionBarPlugin extends CordovaPlugin
 	private Drawable getDrawableForURI(String uri_string)
 	{
 		Uri uri = Uri.parse(uri_string);
-		Activity ctx = (Activity)cordova;
+		Context ctx = ((SherlockActivity)cordova);
 
 		// Special case - TrueType fonts
 		if(uri_string.endsWith(".ttf"))
@@ -484,7 +483,6 @@ public class ActionBarPlugin extends CordovaPlugin
 				if(!item_def.has("items"))
 				{
 					MenuItem item = menu.add(0, i, i, text);
-					item.setTitleCondensed(text);
 					if(item_def.isNull("icon") == false)
 					{
 						GetMenuItemIconTask task = new GetMenuItemIconTask(item);
@@ -610,21 +608,19 @@ public class ActionBarPlugin extends CordovaPlugin
 		{
 			return false;
 		}
-		
-		final Activity ctx = (Activity)cordova;
 
 		if("isAvailable".equals(action))
 		{
 			JSONObject result = new JSONObject();
-			result.put("value", ctx.getWindow().hasFeature(Window.FEATURE_ACTION_BAR));
+			result.put("value", ((SherlockActivity)cordova).getWindow().hasFeature(Window.FEATURE_ACTION_BAR));
 			callbackContext.success(result);
 			return true;
 		}
 
-		final ActionBar bar = ctx.getActionBar();
+		final ActionBar bar = ((SherlockActivity)cordova).getSupportActionBar();
 		if(bar == null)
 		{
-			Window window = ctx.getWindow();
+			Window window = ((SherlockActivity)cordova).getWindow();
 			if(!window.hasFeature(Window.FEATURE_ACTION_BAR))
 			{
 				callbackContext.error("ActionBar feature not available, Window.FEATURE_ACTION_BAR must be enabled!");
@@ -676,246 +672,210 @@ public class ActionBarPlugin extends CordovaPlugin
 		}
 		else
 		{
-			try
+			((SherlockActivity)cordova).runOnUiThread(new Runnable()
 			{
-				JSONException exception = new Runnable()
-				{
-					public JSONException exception = null;
-					
-					public void run()
-					{
-						try
-						{
-							// This is a bit of a hack (should be specific to the request, not global)
-							bases = new String[]
-							{
-								removeFilename(webView.getOriginalUrl()),
-								removeFilename(webView.getUrl())
-							};
-							
-							if("show".equals(action))
-							{
-								bar.show();
-							}
-							else if("hide".equals(action))
-							{
-								bar.hide();
-							}
-							else if("setMenu".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("menu can not be null");
-									return;
-								}
-
-								menu_definition = args.getJSONArray(0);
-								
-								if(Build.VERSION.SDK_INT >= Build.VERSION_CODES.HONEYCOMB)
-								{
-									ctx.invalidateOptionsMenu();
-								}
-							}
-							else if("setTabs".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("menu can not be null");
-									return;
-								}
-					
-								bar.removeAllTabs();
-								tab_callbacks.clear();
-					
-								if(!buildTabs(bar, args.getJSONArray(0)))
-								{
-									error.append("Invalid tab bar definition");
-								}
-							}
-							else if("setDisplayHomeAsUpEnabled".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("showHomeAsUp can not be null");
-									return;
-								}
-					
-								bar.setDisplayHomeAsUpEnabled(args.getBoolean(0));
-							}
-							else if("setDisplayOptions".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("options can not be null");
-									return;
-								}
-
-								final int options = args.getInt(0);
-								bar.setDisplayOptions(options);
-							}
-							else if("setDisplayShowHomeEnabled".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("showHome can not be null");
-									return;
-								}
-					
-								bar.setDisplayShowHomeEnabled(args.getBoolean(0));
-							}
-							else if("setDisplayShowTitleEnabled".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("showTitle can not be null");
-									return;
-								}
-					
-								bar.setDisplayShowTitleEnabled(args.getBoolean(0));
-							}
-							else if("setDisplayUseLogoEnabled".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("useLogo can not be null");
-									return;
-								}
-					
-								bar.setDisplayUseLogoEnabled(args.getBoolean(0));
-							}
-							else if("setHomeButtonEnabled".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("enabled can not be null");
-									return;
-								}
-					
-								bar.setHomeButtonEnabled(args.getBoolean(0));
-							}
-							else if("setIcon".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("icon can not be null");
-									return;
-								}
-								
-								Drawable drawable = getDrawableForURI(args.getString(0));
-								bar.setIcon(drawable);
-							}
-							else if("setListNavigation".equals(action))
-							{
-								JSONArray items = null;
-								if(args.isNull(0) == false)
-								{
-									items = args.getJSONArray(0);
-								}
-								
-								navigation_adapter.setItems(items);
-								bar.setListNavigationCallbacks(navigation_adapter, navigation_listener);
-							}
-							else if("setLogo".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("logo can not be null");
-									return;
-								}
-								
-								Drawable drawable = getDrawableForURI(args.getString(0));
-								bar.setLogo(drawable);
-							}
-							else if("setNavigationMode".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("mode can not be null");
-									return;
-								}
-
-								final int mode = args.getInt(0);
-								bar.setNavigationMode(mode);
-							}
-							else if("setSelectedNavigationItem".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("position can not be null");
-									return;
-								}
-					
-								bar.setSelectedNavigationItem(args.getInt(0));
-							}
-							else if("setSubtitle".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("subtitle can not be null");
-									return;
-								}
-					
-								bar.setSubtitle(args.getString(0));
-							}
-							else if("setTitle".equals(action))
-							{
-								if(args.isNull(0))
-								{
-									error.append("title can not be null");
-									return;
-								}
-					
-								bar.setTitle(args.getString(0));
-							}
-						}
-						catch (JSONException e)
-						{
-							exception = e;
-						}
-						finally
-						{
-							synchronized(this)
-							{
-								this.notify();
-							}
-						}
-					}
-					
-					// Run task synchronously
-					{
-						synchronized(this)
-						{
-							ctx.runOnUiThread(this);
-							this.wait();
-						}
-					}
-				}.exception;
+				public JSONException exception = null;
 				
-				if(exception != null)
+				public void run()
 				{
-					throw exception;
-				}
-			}
-			catch (InterruptedException e)
-			{
-				error.append("Function interrupted on UI thread");
-			}
-		}
-		
-		if(error.length() == 0)
-		{
-			if(result.length() > 0)
-			{
-				callbackContext.success(result);
-			}
-			else
-			{
-				callbackContext.success();
-			}
-		}
-		else
-		{
-			callbackContext.error(error.toString());
+					try
+					{
+						// This is a bit of a hack (should be specific to the request, not global)
+						bases = new String[]
+						{
+							removeFilename(webView.getOriginalUrl()),
+							removeFilename(webView.getUrl())
+						};
+						
+						if("show".equals(action))
+						{
+							bar.show();
+						}
+						else if("hide".equals(action))
+						{
+							bar.hide();
+						}
+						else if("setMenu".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("menu can not be null");
+								return;
+							}
+
+							menu_definition = args.getJSONArray(0);
+							
+							((SherlockActivity)cordova).invalidateOptionsMenu();
+						}
+						else if("setTabs".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("menu can not be null");
+								return;
+							}
+				
+							bar.removeAllTabs();
+							tab_callbacks.clear();
+				
+							if(!buildTabs(bar, args.getJSONArray(0)))
+							{
+								error.append("Invalid tab bar definition");
+							}
+						}
+						else if("setDisplayHomeAsUpEnabled".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("showHomeAsUp can not be null");
+								return;
+							}
+				
+							bar.setDisplayHomeAsUpEnabled(args.getBoolean(0));
+						}
+						else if("setDisplayOptions".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("options can not be null");
+								return;
+							}
+
+							final int options = args.getInt(0);
+							bar.setDisplayOptions(options);
+						}
+						else if("setDisplayShowHomeEnabled".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("showHome can not be null");
+								return;
+							}
+				
+							bar.setDisplayShowHomeEnabled(args.getBoolean(0));
+						}
+						else if("setDisplayShowTitleEnabled".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("showTitle can not be null");
+								return;
+							}
+				
+							bar.setDisplayShowTitleEnabled(args.getBoolean(0));
+						}
+						else if("setDisplayUseLogoEnabled".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("useLogo can not be null");
+								return;
+							}
+				
+							bar.setDisplayUseLogoEnabled(args.getBoolean(0));
+						}
+						else if("setHomeButtonEnabled".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("enabled can not be null");
+								return;
+							}
+				
+							bar.setHomeButtonEnabled(args.getBoolean(0));
+						}
+						else if("setIcon".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("icon can not be null");
+								return;
+							}
+							
+							Drawable drawable = getDrawableForURI(args.getString(0));
+							bar.setIcon(drawable);
+						}
+						else if("setListNavigation".equals(action))
+						{
+							JSONArray items = null;
+							if(args.isNull(0) == false)
+							{
+								items = args.getJSONArray(0);
+							}
+							
+							navigation_adapter.setItems(items);
+							bar.setListNavigationCallbacks(navigation_adapter, navigation_listener);
+						}
+						else if("setLogo".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("logo can not be null");
+								return;
+							}
+							
+							Drawable drawable = getDrawableForURI(args.getString(0));
+							bar.setLogo(drawable);
+						}
+						else if("setNavigationMode".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("mode can not be null");
+								return;
+							}
+
+							final int mode = args.getInt(0);
+							bar.setNavigationMode(mode);
+						}
+						else if("setSelectedNavigationItem".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("position can not be null");
+								return;
+							}
+				
+							bar.setSelectedNavigationItem(args.getInt(0));
+						}
+						else if("setSubtitle".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("subtitle can not be null");
+								return;
+							}
+				
+							bar.setSubtitle(args.getString(0));
+						}
+						else if("setTitle".equals(action))
+						{
+							if(args.isNull(0))
+							{
+								error.append("title can not be null");
+								return;
+							}
+				
+							bar.setTitle(args.getString(0));
+						}
+					}
+					catch (JSONException e)
+					{
+						exception = e;
+					}
+					finally
+					{
+						if(exception != null)
+						{
+							callbackContext.error(exception.toString());
+						}
+						else
+						{
+							callbackContext.success();
+						}
+					}
+				};
+			});
 		}
 
 		return true;
