@@ -1,9 +1,9 @@
-﻿// Copyright (C) 2013 Polychrom Pty Ltd
+// Copyright (C) 2013 Polychrom Pty Ltd
 //
 // This program is licensed under the 3-clause "Modified" BSD license,
 // see LICENSE file for full definition.
 
-package com.polychrom.cordova;
+package com.polychrom.cordova.actionbar;
 
 import java.io.FileNotFoundException;
 import java.io.IOException;
@@ -15,12 +15,13 @@ import java.util.Arrays;
 import java.util.HashMap;
 import java.util.List;
 
+import org.apache.cordova.CallbackContext;
+import org.apache.cordova.CordovaPlugin;
+import org.json.JSONArray;
+import org.json.JSONException;
+import org.json.JSONObject;
+
 import android.annotation.TargetApi;
-
-import com.actionbarsherlock.R;
-import com.actionbarsherlock.app.ActionBar;
-import com.actionbarsherlock.app.SherlockActivity;
-
 import android.app.Activity;
 import android.content.Context;
 import android.graphics.drawable.BitmapDrawable;
@@ -30,11 +31,9 @@ import android.os.AsyncTask;
 import android.os.Build;
 import android.support.v4.app.FragmentTransaction;
 import android.util.DisplayMetrics;
+import android.util.Log;
 import android.util.TypedValue;
 import android.view.LayoutInflater;
-import com.actionbarsherlock.view.Menu;
-import com.actionbarsherlock.view.MenuItem;
-import com.actionbarsherlock.view.SubMenu;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -44,32 +43,40 @@ import android.widget.ImageView;
 import android.widget.LinearLayout;
 import android.widget.SpinnerAdapter;
 import android.widget.TextView;
+import android.widget.Toast;
 
-import org.apache.cordova.api.CallbackContext;
-import org.apache.cordova.api.CordovaPlugin;
-import org.json.JSONArray;
-import org.json.JSONException;
-import org.json.JSONObject;
+import com.actionbarsherlock.R;
+import com.actionbarsherlock.app.ActionBar;
+import com.actionbarsherlock.app.SherlockActivity;
+import com.actionbarsherlock.view.Menu;
+import com.actionbarsherlock.view.MenuItem;
+import com.actionbarsherlock.view.SubMenu;
+import com.actionbarsherlock.widget.SearchView;
+import com.actionbarsherlock.widget.SearchView.OnQueryTextListener;
 
 /**! A naive ActionBar/Menu plugin for Cordova/Android.
- * 
+ *
  * @author Mitchell Wheeler
  *
  *  Wraps the bare essentials of ActionBar and the options menu to appropriately populate the ActionBar in it's various forms.
  */
 @TargetApi(Build.VERSION_CODES.ICE_CREAM_SANDWICH)
-public class ActionBarPlugin extends CordovaPlugin
+public class ActionBarSherlock extends CordovaPlugin
 {
-  JSONArray menu_definition = null;
+  private static final String TAG = "ActionBarSherlockPlugin";
+
+  	JSONArray menu_definition = null;
 	Menu menu = null;
-	HashMap<MenuItem, String> menu_callbacks = new HashMap<MenuItem, String>();
+	HashMap<String, String> menu_callbacks = new HashMap<String, String>();
 
 	HashMap<Integer, ActionBar.Tab> tabs = new HashMap<Integer, ActionBar.Tab>();
 	HashMap<MenuItem, String> tab_callbacks = new HashMap<MenuItem, String>();
-	
+	String searchMenuItemText = null;
+	int searchMenuItemId;
+
 	// A set of base paths to check for relative paths from
 	String bases[];
-	
+
 	class IconTextView extends LinearLayout
 	{
 		final ImageView Icon;
@@ -90,7 +97,7 @@ public class ActionBarPlugin extends CordovaPlugin
 			addView(Text);
 		}
 	}
-	
+
 	class NavigationAdapter extends BaseAdapter implements SpinnerAdapter
 	{
 		class Item
@@ -98,17 +105,17 @@ public class ActionBarPlugin extends CordovaPlugin
 			Drawable Icon = null;
 			String Text = "";
 		}
-		
-		final ActionBarPlugin plugin;
+
+		final ActionBarSherlock plugin;
 		ArrayList<Item> items = null;
-		
+
 		int listPreferredItemHeight = -1;
 
 		class GetIconTask extends AsyncTask<String, Void, Drawable>
 		{
 			public final Item item;
 			public Exception exception = null;
-			
+
 			GetIconTask(Item item)
 			{
 				this.item = item;
@@ -119,7 +126,7 @@ public class ActionBarPlugin extends CordovaPlugin
 			{
 				return getDrawableForURI(uris[0]);
 			}
-			
+
 			@Override
 			protected void onPostExecute(Drawable icon)
 			{
@@ -129,12 +136,12 @@ public class ActionBarPlugin extends CordovaPlugin
 				}
 			}
 		};
-		
-		NavigationAdapter(ActionBarPlugin plugin)
+
+		NavigationAdapter(ActionBarSherlock plugin)
 		{
 			this.plugin = plugin;
 		}
-		
+
 		public void setItems(JSONArray new_items)
 		{
 			if(new_items == null || new_items.length() == 0)
@@ -150,19 +157,19 @@ public class ActionBarPlugin extends CordovaPlugin
 				try
 				{
 					JSONObject definition = new_items.getJSONObject(i);
-					
+
 					Item item = new Item();
 					if(!definition.isNull("text")) item.Text = definition.getString("text");
 					if(!definition.isNull("icon"))
 					{
 						new GetIconTask(item).execute(definition.getString("icon"));
 					}
-					
+
 					items.add(item);
 				}
 				catch(JSONException e)
 				{
-					// Ignore, 
+					// Ignore,
 				}
 			}
 		}
@@ -200,9 +207,9 @@ public class ActionBarPlugin extends CordovaPlugin
 		{
 			final Activity ctx = ((SherlockActivity)plugin.cordova);
 			final Item item = items.get(position);
-			
+
 			IconTextView view;
-			
+
 			if(convertView instanceof IconTextView)
 			{
 				view = (IconTextView)convertView;
@@ -223,28 +230,29 @@ public class ActionBarPlugin extends CordovaPlugin
 				ctx.getTheme().resolveAttribute(android.R.attr.listPreferredItemHeight, value, true);
 				listPreferredItemHeight = (int)value.getDimension(metrics);
 			}
-			
+
 			view.setLayoutParams(new AbsListView.LayoutParams(AbsListView.LayoutParams.MATCH_PARENT, AbsListView.LayoutParams.WRAP_CONTENT));
-			
+
 			return view;
 		}
 	}
-	
+
 	NavigationAdapter navigation_adapter = new NavigationAdapter(this);
-	
+
 	ActionBar.OnNavigationListener navigation_listener = new ActionBar.OnNavigationListener()
 	{
 		@Override
 		public boolean onNavigationItemSelected(int itemPosition, long itemId)
 		{
-			webView.sendJavascript("var item = window.plugins.actionbar.navigation_items[" + itemPosition + "]; if(item.click) item.click();");
+			webView.sendJavascript("var item = ActionBarSherlock.navigation_items[" + itemPosition + "]; if(item.click) item.click();");
 			return true;
 		}
 	};
-	
+
 	@Override
 	public Object onMessage(String id, Object data)
 	{
+		Log.d(TAG, "onMessage: " + id);
 		if("onCreateOptionsMenu".equals(id) || "onPrepareOptionsMenu".equals(id))
 		{
 			menu = (Menu)data;
@@ -253,6 +261,7 @@ public class ActionBarPlugin extends CordovaPlugin
 			{
 				menu.clear();
 				menu_callbacks.clear();
+				Log.d(TAG, "onMessage: about to buildMenu: " + id);
 				buildMenu(menu, menu_definition);
 			}
 		}
@@ -261,25 +270,41 @@ public class ActionBarPlugin extends CordovaPlugin
 			MenuItem item = (MenuItem)data;
 			if(item.getItemId() == android.R.id.home)
 			{
-				webView.sendJavascript("if(window.plugins.actionbar.home_callback) window.plugins.actionbar.home_callback();");
+				webView.sendJavascript("if(ActionBarSherlock.home_callback) ActionBarSherlock.home_callback();");
 			}
-			else if(menu_callbacks.containsKey(item))
+			else if(menu_callbacks.containsKey(item.getTitle().toString()))
 			{
-				final String callback = menu_callbacks.get(item);
+				final String callback = menu_callbacks.get(item.getTitle().toString());
 				webView.sendJavascript(callback);
 			}
 		}
-		
+		else if("onQueryTextSubmit".equals(id))
+		{
+			if (searchMenuItemText != null) {
+				
+				if(menu_callbacks.containsKey(searchMenuItemText))
+				{
+					String callback = menu_callbacks.get(searchMenuItemText);
+					String keyword = data.toString();
+					String action = callback.replace("KEYWORD", keyword);
+					//String callback = "FORMY.router.navigate('search/" + keyword + "', true);";
+					webView.sendJavascript(action);
+					MenuItem searchMenuItem = menu.findItem(searchMenuItemId);
+					searchMenuItem.collapseActionView();
+				}
+			}
+		}
+
 		return null;
 	}
-	
+
 	private String removeFilename(String path)
 	{
 		if(!path.endsWith("/"))
 		{
 			path = path.substring(0, path.lastIndexOf('/')+1);
 		}
-		
+
 		return path;
 	}
 
@@ -294,9 +319,17 @@ public class ActionBarPlugin extends CordovaPlugin
 			/*for(String base: bases)
 			{
 				String path = base + uri;
-				
+
 				// TODO: Font load / glyph rendering ("/blah/fontawesome.ttf:\f1234")
 			}*/
+		}
+		else if (uri_string.startsWith("R.drawable"))
+		{
+			String[] array = uri_string.split("\\.");
+			String name = array[2];
+			int resourceId = ctx.getResources().getIdentifier(name, "drawable", ctx.getPackageName());
+			Drawable drawable= ctx.getResources().getDrawable(resourceId);
+			return drawable;
 		}
 		// General bitmap
 		else
@@ -342,12 +375,12 @@ public class ActionBarPlugin extends CordovaPlugin
 				for(String base: bases)
 				{
 					String path = base + uri;
-					
+
 					// Asset
 					if(base.startsWith("file:///android_asset/"))
 					{
 						path = path.substring(22);
-						
+
 						try
 						{
 							InputStream stream = ctx.getAssets().open(path);
@@ -377,7 +410,7 @@ public class ActionBarPlugin extends CordovaPlugin
 
 		return null;
 	}
-	
+
 	/**! Build a menu from a JSON definition.
 	 *
 	 * Example definition:
@@ -408,16 +441,16 @@ public class ActionBarPlugin extends CordovaPlugin
 	 *	 text: 'Contact',
 	 *	 show: SHOW_AS_ACTION_NEVER
 	 * }]
-	 * 
+	 *
 	 * Note: By default all menu items have the show flag SHOW_AS_ACTION_IF_ROOM
-	 * 
+	 *
 	 * @param menu The menu to build the definition into
 	 * @param definition The menu definition (see example above)
 	 * @return true if the definition was valid, false otherwise.
 	 */
 	private boolean buildMenu(Menu menu, JSONArray definition)
 	{
-		return buildMenu(menu, definition, "window.plugins.actionbar.menu");
+		return buildMenu(menu, definition, "ActionBarSherlock.menu");
 	}
 
 	private boolean buildMenu(Menu menu, JSONArray definition, String menu_var)
@@ -427,7 +460,7 @@ public class ActionBarPlugin extends CordovaPlugin
 		{
 			public final MenuItem item;
 			public Exception exception = null;
-			
+
 			GetMenuItemIconTask(MenuItem item)
 			{
 				this.item = item;
@@ -438,7 +471,7 @@ public class ActionBarPlugin extends CordovaPlugin
 			{
 				return getDrawableForURI(uris[0]);
 			}
-			
+
 			@Override
 			protected void onPostExecute(Drawable icon)
 			{
@@ -448,12 +481,12 @@ public class ActionBarPlugin extends CordovaPlugin
 				}
 			}
 		};
-		
+
 		class GetSubMenuIconTask extends AsyncTask<String, Void, Drawable>
 		{
 			public final SubMenu item;
 			public Exception exception = null;
-			
+
 			GetSubMenuIconTask(SubMenu item)
 			{
 				this.item = item;
@@ -464,7 +497,7 @@ public class ActionBarPlugin extends CordovaPlugin
 			{
 				return getDrawableForURI(uris[0]);
 			}
-			
+
 			@Override
 			protected void onPostExecute(Drawable icon)
 			{
@@ -474,13 +507,15 @@ public class ActionBarPlugin extends CordovaPlugin
 				}
 			}
 		};
-		
+
 		try
 		{
 			for(int i = 0; i < definition.length(); ++i)
 			{
 				final JSONObject item_def = definition.getJSONObject(i);
 				final String text = item_def.isNull("text")? "" : item_def.getString("text");
+				final String type = item_def.isNull("type")? "" : item_def.getString("type");
+				final String click = item_def.isNull("click")? "" : item_def.getString("click");
 
 				if(!item_def.has("items"))
 				{
@@ -488,17 +523,32 @@ public class ActionBarPlugin extends CordovaPlugin
 					if(item_def.isNull("icon") == false)
 					{
 						GetMenuItemIconTask task = new GetMenuItemIconTask(item);
-						
+
 						synchronized(task)
 						{
 							task.execute(item_def.getString("icon"));
 						}
 					}
 
+					if(type.equals("SearchView"))
+					{
+						searchMenuItemText = text;
+						searchMenuItemId = i;
+						final ActionBar bar = ((SherlockActivity)cordova).getSupportActionBar();
+
+						//Create the search view
+				        SearchView searchView = new SearchView(bar.getThemedContext());
+				        searchView.setQueryHint("Search for phone...");
+				        final Activity ctx = ((SherlockActivity)this.cordova);
+				        searchView.setOnQueryTextListener((OnQueryTextListener) ctx);
+
+				        item.setActionView(searchView);
+					}
+
 					// Default to MenuItem.SHOW_AS_ACTION_IF_ROOM, otherwise take user defined value.
 					item.setShowAsAction(item_def.has("show")? item_def.getInt("show") : MenuItem.SHOW_AS_ACTION_IF_ROOM | MenuItem.SHOW_AS_ACTION_WITH_TEXT);
 
-					menu_callbacks.put(item, "var item = " + menu_var + "[" + i + "]; if(item.click) item.click();");
+					menu_callbacks.put(item.getTitle().toString(), click);
 				}
 				else
 				{
@@ -506,13 +556,13 @@ public class ActionBarPlugin extends CordovaPlugin
 					if(item_def.isNull("icon") == false)
 					{
 						GetSubMenuIconTask task = new GetSubMenuIconTask(submenu);
-						
+
 						synchronized(task)
 						{
 							task.execute(item_def.getString("icon"));
 						}
 					}
-					
+
 					// Set submenu header
 					if(item_def.has("header"))
 					{
@@ -522,13 +572,13 @@ public class ActionBarPlugin extends CordovaPlugin
 						{
 							submenu.setHeaderTitle(header.getString("title"));
 						}
-						
+
 						if(header.has("icon"))
 						{
 							submenu.setHeaderIcon(getDrawableForURI(header.getString("icon")));
 						}
 					}
-					
+
 					// Build sub-menu
 					buildMenu(submenu, item_def.getJSONArray("items"), menu_var + "[" + i + "].items");
 				}
@@ -542,9 +592,9 @@ public class ActionBarPlugin extends CordovaPlugin
 		return true;
 	}
 
-	
+
 	/**! Build a tab bar from a JSON definition.
-	 * 
+	 *
 	 * Example definition:
 	 * [{
 	 * 	   icon: 'icons/tab1_icon.png',
@@ -560,16 +610,16 @@ public class ActionBarPlugin extends CordovaPlugin
 	 *	 reselect: function() { alert('Refresh Tab #2!'); },
 	 *	 unselect: function() { alert('Hide Tab #2!'); }
 	 * }]
-	 * 
+	 *
 	 * @param bar The action bar to build the definition into
 	 * @param definition The tab bar definition (see example above)
 	 * @return true if the definition was valid, false otherwise.
 	 */
 	private boolean buildTabs(ActionBar bar, JSONArray definition)
 	{
-		return buildTabs(bar, definition, "window.plugins.actionbar.tabs");
+		return buildTabs(bar, definition, "ActionBarSherlock.tabs");
 	}
-	
+
 	private boolean buildTabs(ActionBar bar, JSONArray definition, String menu_var)
 	{
 		try
@@ -600,14 +650,17 @@ public class ActionBarPlugin extends CordovaPlugin
 		"setDisplayShowHomeEnabled", "setDisplayHomeAsUpEnabled", "setDisplayShowTitleEnabled", "setDisplayUseLogoEnabled",
 		"setNavigationMode", "getNavigationMode", "setSelectedNavigationItem", "getSelectedNavigationItem",
 		"setTitle", "getTitle", "setSubtitle", "getSubtitle"
-		
+
 	});
 
 	@Override
 	public boolean execute(final String action, final JSONArray args, final CallbackContext callbackContext) throws JSONException
 	{
+		Log.d(TAG,"Execute ActionBarSherlock.");
+
 		if(!plugin_actions.contains(action))
 		{
+			Log.d(TAG,"ActionBarSherlock - does not contain " + action);
 			return false;
 		}
 
@@ -622,6 +675,8 @@ public class ActionBarPlugin extends CordovaPlugin
 		final ActionBar bar = ((SherlockActivity)cordova).getSupportActionBar();
 		if(bar == null)
 		{
+		  Log.d(TAG,"ActionBarSherlock bar is null.");
+
 			Window window = ((SherlockActivity)cordova).getWindow();
 			if(!window.hasFeature(Window.FEATURE_ACTION_BAR))
 			{
@@ -637,6 +692,7 @@ public class ActionBarPlugin extends CordovaPlugin
 
 		if(menu == null)
 		{
+			Log.d(TAG,"ActionBarSherlock menu is null.");
 			callbackContext.error("Options menu not initialised");
 			return true;
 		}
@@ -677,18 +733,19 @@ public class ActionBarPlugin extends CordovaPlugin
 			((SherlockActivity)cordova).runOnUiThread(new Runnable()
 			{
 				public JSONException exception = null;
-				
+
 				public void run()
 				{
 					try
 					{
+						Log.d(TAG,"ActionBarSherlock building the bar. Action: " + action);
 						// This is a bit of a hack (should be specific to the request, not global)
 						bases = new String[]
 						{
 							removeFilename(webView.getOriginalUrl()),
 							removeFilename(webView.getUrl())
 						};
-						
+
 						if("show".equals(action))
 						{
 							bar.show();
@@ -706,7 +763,7 @@ public class ActionBarPlugin extends CordovaPlugin
 							}
 
 							menu_definition = args.getJSONArray(0);
-							
+
 							((SherlockActivity)cordova).invalidateOptionsMenu();
 						}
 						else if("setTabs".equals(action))
@@ -716,10 +773,10 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("menu can not be null");
 								return;
 							}
-				
+
 							bar.removeAllTabs();
 							tab_callbacks.clear();
-				
+
 							if(!buildTabs(bar, args.getJSONArray(0)))
 							{
 								error.append("Invalid tab bar definition");
@@ -732,7 +789,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("showHomeAsUp can not be null");
 								return;
 							}
-				
+
 							bar.setDisplayHomeAsUpEnabled(args.getBoolean(0));
 						}
 						else if("setDisplayOptions".equals(action))
@@ -753,7 +810,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("showHome can not be null");
 								return;
 							}
-				
+
 							bar.setDisplayShowHomeEnabled(args.getBoolean(0));
 						}
 						else if("setDisplayShowTitleEnabled".equals(action))
@@ -763,7 +820,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("showTitle can not be null");
 								return;
 							}
-				
+
 							bar.setDisplayShowTitleEnabled(args.getBoolean(0));
 						}
 						else if("setDisplayUseLogoEnabled".equals(action))
@@ -773,7 +830,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("useLogo can not be null");
 								return;
 							}
-				
+
 							bar.setDisplayUseLogoEnabled(args.getBoolean(0));
 						}
 						else if("setHomeButtonEnabled".equals(action))
@@ -783,7 +840,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("enabled can not be null");
 								return;
 							}
-				
+
 							bar.setHomeButtonEnabled(args.getBoolean(0));
 						}
 						else if("setIcon".equals(action))
@@ -793,7 +850,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("icon can not be null");
 								return;
 							}
-							
+
 							Drawable drawable = getDrawableForURI(args.getString(0));
 							bar.setIcon(drawable);
 						}
@@ -804,7 +861,7 @@ public class ActionBarPlugin extends CordovaPlugin
 							{
 								items = args.getJSONArray(0);
 							}
-							
+
 							navigation_adapter.setItems(items);
 							bar.setListNavigationCallbacks(navigation_adapter, navigation_listener);
 						}
@@ -815,7 +872,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("logo can not be null");
 								return;
 							}
-							
+
 							Drawable drawable = getDrawableForURI(args.getString(0));
 							bar.setLogo(drawable);
 						}
@@ -837,7 +894,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("position can not be null");
 								return;
 							}
-				
+
 							bar.setSelectedNavigationItem(args.getInt(0));
 						}
 						else if("setSubtitle".equals(action))
@@ -847,7 +904,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("subtitle can not be null");
 								return;
 							}
-				
+
 							bar.setSubtitle(args.getString(0));
 						}
 						else if("setTitle".equals(action))
@@ -857,7 +914,7 @@ public class ActionBarPlugin extends CordovaPlugin
 								error.append("title can not be null");
 								return;
 							}
-				
+
 							bar.setTitle(args.getString(0));
 						}
 					}
@@ -885,10 +942,10 @@ public class ActionBarPlugin extends CordovaPlugin
 
 	public static class TabListener implements ActionBar.TabListener
 	{
-		private ActionBarPlugin plugin;
+		private ActionBarSherlock plugin;
 		private String js_item;
 
-		public TabListener(ActionBarPlugin plugin, String js_item)
+		public TabListener(ActionBarSherlock plugin, String js_item)
 		{
 			this.plugin = plugin;
 			this.js_item = js_item;
@@ -897,21 +954,21 @@ public class ActionBarPlugin extends CordovaPlugin
 		public void onTabSelected(ActionBar.Tab tab, FragmentTransaction ft)
 		{
 			String callback = "var item = " + js_item + "; if(item.select) item.select(item);";
-			
+
 			plugin.webView.sendJavascript(callback);
 		}
 
 		public void onTabUnselected(ActionBar.Tab tab, FragmentTransaction ft)
 		{
 			String callback = "var item = " + js_item + "; if(item.unselect) item.unselect(item);";
-			
+
 			plugin.webView.sendJavascript(callback);
 		}
 
 		public void onTabReselected(ActionBar.Tab tab, FragmentTransaction ft)
 		{
 			String callback = "var item = " + js_item + "; if(item.reselect) item.reselect(item);";
-			
+
 			plugin.webView.sendJavascript(callback);
 		}
 	}
